@@ -27,6 +27,13 @@ let lastTime = 0;
 let mouseLastTime = 0;
 let invincibility = false; //Invincibility to collisions
 
+let pFac = {
+    gravity: 500,
+    collision: 150,
+    mouse: 0.01,
+}
+//Power Factors of each forces
+
 const ball = {
     x: 200,
     y: 200,
@@ -68,7 +75,7 @@ class Force {
     }
 }
 
-const gravity = new Force((Math.PI / 2), 500, "external");
+const gravity = new Force((Math.PI / 2), pFac.gravity, "external");
 const forces = [gravity];
 
 const graphics = {
@@ -261,7 +268,7 @@ function Initialize(currentTime) {
         // const thetaDg = theta * (180 / Math.PI);
 
         //F = MA
-        let A = (1550 * (vecSum(velocity.x / 10, velocity.y / 10))) + mouse.velocity;        
+        let A = (pFac.collision * (vecSum(velocity.x / 2, velocity.y / 2))) + (Math.sqrt(mouse.velocity) * pFac.mouse);        
         forces.push(new Force(theta, A));    
 
         invincibility = true;            

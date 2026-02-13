@@ -10,12 +10,13 @@ canvas.height = 600;
 
 //Cursor object with x and y properties
 let mouse = {
-    x: 0,
-    y: 0,
-    radius: 30,
+    x: 200,
+    y: 600,
+    mass: 1,
+    radius: 20,
     velocity: 0,
+    shadowArr: {x: 0, y: 0}, //But not rendering need it for velocity.
 };
-
 
 /**Game Intial Setup Variables and Constants*/
 const velocity = {
@@ -24,24 +25,25 @@ const velocity = {
 };
 
 let lastTime = 0;
-let mouseLastTime = 0;
 let invincibility = false; //Invincibility to collisions
 
 let pFac = {
     gravity: 500,
-    collision: 150,
+    collision: 100,
     mouse: 0.01,
 }
 //Power Factors of each forces
 
+//Credit to Henry for shadow trailing
 const ball = {
     x: 200,
     y: 200,
+    mass: 1,
     radius: 25,
+    shadowArr: [],//Stores shadow trail positions
 };
 
-//Credit to Henry for shadow trailing
-const shadowArr = []; //Stores shadow trail positions
+
 const forcesArr = [];
 
 //The Below  is a vector joining the centres of circle and cursor
@@ -55,7 +57,31 @@ rVec.diff = function(axis) {
 };
 
 let vecSum = (x, y) => Math.sqrt((x ** 2) + (y ** 2));
+let A = (obj = mouse) => {
+    //We determine relative velocity of approach
+    //We know that mometum is conserved.
 
+    const theta = Math.atan2(rVec.diff('y'), rVec.diff('x')); 
+    // This is the angle between horizontal and line joining their centres
+    const alpha = Math.atan2(velocity.y, velocity.x);
+    const beta = Math.atan2(mouse.vy, mouse.vx);
+    
+
+    const bPar = vecSum(velocity.x, velocity.y) * Math.cos(alpha - theta),
+          bPer = vecSum(velocity.x, velocity.y) * Math.sin(alpha - theta);
+    
+    const mPar = vecSum(mouse.vx, mouse.vy) * Math.cos(beta - theta),
+          mPer = vecSum(mouse.vx, mouse.vy) * Math.sin(beta - theta);
+
+    //e =  (bPar - mPar) / (bParFinal + mParFinal );
+
+    console.log(`Ball ${Math.round(bPar)}`)
+    console.log(`Mouse ${Math.round(mPar)}`)
+
+    const vfinal = Math.abs(bPar - mPar) - vecSum(mouse.vx, mouse.vy);
+    const acceleration = ball.mass * (Math.abs(vecSum(velocity.x, velocity.y) - vfinal));
+    return pFac.collision * acceleration;
+}   
 //Angle (for theta) is measured from horiztonal position.  
 class Force {
     constructor(_theta, _acceleration, _type = "collision") {
@@ -67,8 +93,8 @@ class Force {
     effect(dt) {
         //Accelerations in x and y respectively
         //Negative 1 is multiplied because forces act radially.
-        let AX = -1 * (this.acceleration * Math.cos(this.theta)),
-            AY = (this.acceleration * Math.sin(this.theta));
+        let AX = -1 * (this.acceleration * Math.cos(this.theta)) / ball.mass,
+            AY = (this.acceleration * Math.sin(this.theta)) / ball.mass;
         
         velocity.x += AX * dt;
         velocity.y += AY * dt;
@@ -190,14 +216,14 @@ function drawBall() {
 function drawShadowTrails() {
     // Go over every position and draw a shadow there
     ctx.fillStyle = 'rgb(255, 195, 230, 0.3)';
-    for (let i = shadowArr.length; i --;) {
+    for (let i = ball.shadowArr.length; i --;) {
         ctx.beginPath();
-        ctx.arc(shadowArr[i].x, shadowArr[i].y, i * (ball.radius - 5) / 10, 0, 2 * Math.PI);
+        ctx.arc(ball.shadowArr[i].x, ball.shadowArr[i].y, i * (ball.radius - 5) / 10, 0, 2 * Math.PI);
         ctx.fill();
     }
     
-    shadowArr.push({x: ball.x, y: ball.y});
-    if (shadowArr.length > 15) shadowArr.shift(); // Takes out the first element of the array if there are already a lot of positions stored
+    ball.shadowArr.push({x: ball.x, y: ball.y});
+    if (ball.shadowArr.length > 15) ball.shadowArr.shift(); // Takes out the first element of the array if there are already a lot of positions stored
 }
 
 let cursor = () => {
@@ -242,9 +268,20 @@ function Initialize(currentTime) {
     checkDefeat();
 
     debugMode();
-    
-    const dt = (currentTime - lastTime) / 1000;
+
+    if (lastTime === 0) { 
+        lastTime = currentTime; 
+    }
+
+    let dt = ((currentTime - lastTime) / 1000);
+    if  (dt === 0) dt = 0.005;
+
     lastTime = currentTime;
+
+    mouse.vx = (mouse.x - mouse.shadowArr.x) / dt,
+    mouse.vy = (mouse.y - mouse.shadowArr.y) / dt;
+
+    mouse.shadowArr = {x: mouse.x, y: mouse.y};
 
     //Update Horizontal position
     ball.x += velocity.x * dt;
@@ -255,6 +292,7 @@ function Initialize(currentTime) {
         ball: { x: ball.x, y: ball.y },
         mouse: { x: mouse.x, y: mouse.y },
     };
+    
 
     // graphics.tree2(360, 520, 15);
 
@@ -267,10 +305,9 @@ function Initialize(currentTime) {
         const theta = Math.atan2(dy, dx);
         // const thetaDg = theta * (180 / Math.PI);
 
-        //F = MA
-        let A = (pFac.collision * (vecSum(velocity.x / 2, velocity.y / 2))) + (Math.sqrt(mouse.velocity) * pFac.mouse);        
-        forces.push(new Force(theta, A));    
+        //And god said, F = MA.
 
+        forces.push(new Force(theta, A()));    
         invincibility = true;            
     } else {
         for (let i = forces.length - 1; i >= 0; i--) {
@@ -281,7 +318,7 @@ function Initialize(currentTime) {
 
         window.setTimeout(() => {
             invincibility = false;
-        }, 1000);
+        }, 500);
     }
     
     forces.forEach(instance => {
@@ -301,20 +338,7 @@ requestAnimationFrame(Initialize);
 
 //Updating Cursor Position
 window.addEventListener("mousemove", (event) => {
-    const currentTime = performance.now();
-    
-    const newX = event.clientX - 1,
-        newY = event.clientY + 5; 
-
-    const dt = (currentTime - mouseLastTime) / 1000;
-    const vx = (newX - mouse.x) / dt,
-          vy = (newY - mouse.y) / dt;
-
-    mouseLastTime = currentTime;
-
-    mouse.velocity = vecSum(vx, vy);
-    
     //Weird gameplay choices lol
-    mouse.x = newX;
-    mouse.y = newY; 
+    mouse.x = event.clientX - 1;
+    mouse.y = event.clientY + 5; 
 });

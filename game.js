@@ -25,11 +25,10 @@ const velocity = {
 };
 
 let lastTime = 0;
-let invincibility = false; //Invincibility to collisions
 
 let pFac = {
     gravity: 500,
-    collision: 100,
+    collision: 30,
     mouse: 0.01,
 }
 //Power Factors of each forces
@@ -57,51 +56,62 @@ rVec.diff = function(axis) {
 };
 
 let vecSum = (x, y) => Math.sqrt((x ** 2) + (y ** 2));
-let A = (obj = mouse) => {
+let A = (obj = mouse, restitution = 1) => {
     //We determine relative velocity of approach
     //We know that mometum is conserved.
 
     const theta = Math.atan2(rVec.diff('y'), rVec.diff('x')); 
     // This is the angle between horizontal and line joining their centres
     const alpha = Math.atan2(velocity.y, velocity.x);
-    const beta = Math.atan2(mouse.vy, mouse.vx);
+    const beta = Math.atan2(obj.vy, obj.vx);
     
 
     const bPar = vecSum(velocity.x, velocity.y) * Math.cos(alpha - theta),
           bPer = vecSum(velocity.x, velocity.y) * Math.sin(alpha - theta);
     
-    const mPar = vecSum(mouse.vx, mouse.vy) * Math.cos(beta - theta),
-          mPer = vecSum(mouse.vx, mouse.vy) * Math.sin(beta - theta);
+    const mPar = vecSum(obj.vx, obj.vy) * Math.cos(beta - theta),
+          mPer = vecSum(obj.vx, obj.vy) * Math.sin(beta - theta);
 
-    //e =  (bPar - mPar) / (bParFinal + mParFinal );
+    //e = bPar - mPar / m'Par + b'Par
+    //b'Par  = ((bPar - mPar) / e) + m'Par
 
-    console.log(`Ball ${Math.round(bPar)}`)
-    console.log(`Mouse ${Math.round(mPar)}`)
+    const bParFinal = ((bPar - mPar) / restitution) + mPar;
+    const impulse = pFac.collision * vecSum(bPer, bParFinal) - vecSum(bPer, bPar);
 
-    const vfinal = Math.abs(bPar - mPar) - vecSum(mouse.vx, mouse.vy);
-    const acceleration = ball.mass * (Math.abs(vecSum(velocity.x, velocity.y) - vfinal));
-    return pFac.collision * acceleration;
+    return impulse;
 }   
 //Angle (for theta) is measured from horiztonal position.  
 class Force {
-    constructor(_theta, _acceleration, _type = "collision") {
+    constructor(_theta, _acceleration, _type = "collision",  _duration = 0.1) {
         this.type = _type;
         this.theta = _theta;
+        this.duration = _duration;
         this.acceleration = _acceleration;
+        this.startTime = performance.now();
     }
     
     effect(dt) {
         //Accelerations in x and y respectively
         //Negative 1 is multiplied because forces act radially.
-        let AX = -1 * (this.acceleration * Math.cos(this.theta)) / ball.mass,
-            AY = (this.acceleration * Math.sin(this.theta)) / ball.mass;
-        
+        let AX = -1 * (this.acceleration * Math.cos(this.theta)),
+            AY = (this.acceleration * Math.sin(this.theta));
+
         velocity.x += AX * dt;
         velocity.y += AY * dt;
     }
+
+    get isExpired() {
+        switch(this.duration) {
+            case "eternal":
+                return false;
+            break;
+            default:
+                return performance.now() - this.startTime > this.duration;
+        }
+    }
 }
 
-const gravity = new Force((Math.PI / 2), pFac.gravity, "external");
+const gravity = new Force((Math.PI / 2), pFac.gravity, "external", "eternal");
 const forces = [gravity];
 
 const graphics = {
@@ -254,11 +264,12 @@ const checkDefeat = () => {
     }
 };
 
-function collision() {
+function collision(obj) {
     //To check intersection of circles
-    let distance = Math.sqrt((rVec.diff("x") ** 2) + (rVec.diff("y") ** 2));
+    // let distance = Math.sqrt((rVec.diff("x") ** 2) + (rVec.diff("y") ** 2));
+    let distance = Math.sqrt(((ball.x - obj.x) ** 2) + ((ball.y - obj.y) ** 2));
 
-    return distance < ball.radius + mouse.radius
+    return distance < ball.radius + obj.radius
 }
 
 /**Main Function*/
@@ -278,8 +289,8 @@ function Initialize(currentTime) {
 
     lastTime = currentTime;
 
-    mouse.vx = (mouse.x - mouse.shadowArr.x) / dt,
-    mouse.vy = (mouse.y - mouse.shadowArr.y) / dt;
+    mouse.vx = (mouse.x - mouse.shadowArr.x) / (dt * 100),
+    mouse.vy = (mouse.y - mouse.shadowArr.y) / (dt * 100);
 
     mouse.shadowArr = {x: mouse.x, y: mouse.y};
 
@@ -298,33 +309,22 @@ function Initialize(currentTime) {
 
     //Draw Shadows
     drawShadowTrails();
-    
-    if (collision() && !invincibility) {                
+
+    if (collision(mouse)) {                
         let dx = rVec.diff('x'),
             dy = rVec.diff('y');
         const theta = Math.atan2(dy, dx);
         // const thetaDg = theta * (180 / Math.PI);
 
         //And god said, F = MA.
-
-        forces.push(new Force(theta, A()));    
-        invincibility = true;            
-    } else {
-        for (let i = forces.length - 1; i >= 0; i--) {
-            if (forces[i].type === "collision") {
-                forces.splice(i, 1);
-            }
-        }
-
-        window.setTimeout(() => {
-            invincibility = false;
-        }, 500);
+        forces.push(new Force(theta, A()));
     }
-    
-    forces.forEach(instance => {
-        instance.effect(dt);
-    });
-    
+
+    for (let i = forces.length - 1; i >= 0; i--) {
+        forces[i].effect(dt);
+        if (forces[i].isExpired) forces.splice(i, 1);
+    }
+
     cursor();
     drawBall();
 
